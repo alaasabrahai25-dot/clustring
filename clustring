@@ -1,0 +1,129 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import pyswarms as ps
+from PIL import Image
+import warnings
+warnings.filterwarnings('ignore')
+
+# ========== PSO Image Clustering Function ==========
+def pso_image_clustering(image, n_clusters=3, n_particles=20, iters=100):
+    h, w, c = image.shape
+    pixels = image.reshape(-1, c) / 255.0
+    
+    def objective_function(particles):
+        n_particles = particles.shape[0]
+        fitness = np.zeros(n_particles)
+        
+        for i in range(n_particles):
+            centers = particles[i].reshape(n_clusters, c)
+            distances = np.zeros((pixels.shape[0], n_clusters))
+            for k in range(n_clusters):
+                distances[:, k] = np.linalg.norm(pixels - centers[k], axis=1)
+            labels = np.argmin(distances, axis=1)
+            
+            total_distance = 0
+            for k in range(n_clusters):
+                if np.any(labels == k):
+                    cluster_points = pixels[labels == k]
+                    center = centers[k]
+                    total_distance += np.sum(np.linalg.norm(cluster_points - center, axis=1))
+            fitness[i] = total_distance
+        return fitness
+    
+    dims = n_clusters * c
+    bounds = (np.zeros(dims), np.ones(dims))
+    options = {'c1': 0.5, 'c2': 0.3, 'w': 0.9}
+    
+    optimizer = ps.single.GlobalBestPSO(n_particles=n_particles, dimensions=dims, options=options, bounds=bounds)
+    best_cost, best_pos = optimizer.optimize(objective_function, iters=iters, verbose=False)
+    
+    centers = best_pos.reshape(n_clusters, c)
+    distances = np.zeros((pixels.shape[0], n_clusters))
+    for k in range(n_clusters):
+        distances[:, k] = np.linalg.norm(pixels - centers[k], axis=1)
+    labels = np.argmin(distances, axis=1)
+    segmented = centers[labels].reshape(h, w, c)
+    
+    return segmented, centers, labels, best_cost
+
+
+# ========== Load Image ==========
+print("PSO Image Color Clustering")
+print("=" * 40)
+
+# Change this to your image path
+image_path = "sample.jpg"
+
+try:
+    # Load image
+    image = np.array(Image.open(image_path))
+    print(f"Image loaded: {image.shape}")
+    
+    # Convert grayscale to RGB if needed
+    if len(image.shape) == 2:
+        image = np.stack((image,)*3, axis=-1)
+        print("Converted grayscale to RGB")
+    
+    # Resize if image is too large
+    if image.shape[0] > 400 or image.shape[1] > 400:
+        from skimage.transform import resize
+        image = (resize(image, (200, 200)) * 255).astype(np.uint8)
+        print(f"Resized image to: {image.shape}")
+        
+except FileNotFoundError:
+    print(f"Error: Image '{image_path}' not found!")
+    print("Using sample image instead")
+    
+    # Sample image
+    size = 100
+    image = np.zeros((size, size, 3))
+    image[0:50, 0:50, 0] = 255
+    image[0:50, 50:100, 1] = 255
+    image[50:100, 0:50, 2] = 255
+    image[50:100, 50:100, 0] = 255
+    image[50:100, 50:100, 1] = 255
+    image = image.astype(np.uint8)
+
+
+# ========== Select Number of Clusters ==========
+n_clusters = 5
+
+print(f"\nApplying PSO with K = {n_clusters}...")
+segmented, centers, labels, cost = pso_image_clustering(image, n_clusters=n_clusters, n_particles=20, iters=100)
+
+
+# ========== Display Results ==========
+plt.figure(figsize=(15, 5))
+
+# Original image
+plt.subplot(1, 3, 1)
+plt.imshow(image)
+plt.title("Original Image")
+plt.axis('off')
+
+# Segmented image
+plt.subplot(1, 3, 2)
+plt.imshow(segmented)
+plt.title(f"PSO Clustered Image (K={n_clusters})")
+plt.axis('off')
+
+# Detected colors
+plt.subplot(1, 3, 3)
+centers_display = np.zeros((50, 50 * n_clusters, 3))
+for i in range(min(n_clusters, len(centers))):
+    centers_display[:, i*50:(i+1)*50, :] = centers[i] * 255
+plt.imshow(centers_display.astype(np.uint8))
+plt.title("Detected Colors")
+plt.axis('off')
+
+plt.tight_layout()
+plt.show()
+
+
+# ========== Print Results ==========
+print("\nResults:")
+print("-" * 40)
+for i, center in enumerate(centers):
+    print(f"Cluster {i+1}: R={center[0]*255:.0f}, G={center[1]*255:.0f}, B={center[2]*255:.0f}")
+
+print(f"\nBest Cost: {cost:.2f}")
